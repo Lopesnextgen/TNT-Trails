@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "tnt-trails",
+	"version": "${version}",
+	"name": "TNT Trails",
+	"description": "Tracks and renders the path of primed TNT entities.",
+	"authors": [
+		"Lopes (jvmexploit)"
+	],
+	"contact": {
+		"homepage": "https://github.com/Lopesnextgen/TNT-Trails",
+		"sources": "https://github.com/Lopesnextgen/TNT-Trails",
+		"issues": "https://github.com/Lopesnextgen/TNT-Trails/issues"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/tnt-trails/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			{
+				"value": "davi.lopes.TNTTrails",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.2",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"fabric-language-kotlin": "*"
+	}
+}

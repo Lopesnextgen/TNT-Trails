@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "type": "ttf",
+      "file": "tnt-trails:baflion_sans_black.ttf",
+      "size": 8.0,
+      "oversample": 2.0,
+      "shift": [0.0, 0.0]
+    }
+  ]
+}
