@@ -46,9 +46,14 @@ class TNTTrailsScreen(private val parent: Screen?) : Screen(TNTFonts.title(TNTTr
             }
         )
         addRenderableWidget(
+            TNTToggle(left, controlsTop + rowGap * 2, columnWidth, "Continuous Overlay", config.continuousOverlay) {
+                config.continuousOverlay = it
+            }
+        )
+        addRenderableWidget(
             SettingSlider(
                 left,
-                controlsTop + rowGap * 2,
+                controlsTop + rowGap * 3,
                 columnWidth,
                 "Trail Delay",
                 100.0,
@@ -60,7 +65,7 @@ class TNTTrailsScreen(private val parent: Screen?) : Screen(TNTFonts.title(TNTTr
         addRenderableWidget(
             SettingSlider(
                 left,
-                controlsTop + rowGap * 3,
+                controlsTop + rowGap * 4,
                 columnWidth,
                 "Line Width",
                 1.0,
@@ -72,7 +77,7 @@ class TNTTrailsScreen(private val parent: Screen?) : Screen(TNTFonts.title(TNTTr
         addRenderableWidget(
             SettingSlider(
                 left,
-                controlsTop + rowGap * 4,
+                controlsTop + rowGap * 5,
                 columnWidth,
                 "ESP Hold (ms)",
                 0.0,
@@ -206,6 +211,7 @@ class TNTTrailsScreen(private val parent: Screen?) : Screen(TNTFonts.title(TNTTr
         config.green = defaults.green
         config.blue = defaults.blue
         config.alpha = defaults.alpha
+        config.continuousOverlay = defaults.continuousOverlay
         ConfigManager.save()
     }
 

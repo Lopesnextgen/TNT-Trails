@@ -9,7 +9,8 @@ data class TNTTrailsConfig(
     var red: Int = 255,
     var green: Int = 72,
     var blue: Int = 72,
-    var alpha: Int = 220
+    var alpha: Int = 220,
+    var continuousOverlay: Boolean = false
 ) {
     fun normalize() {
         tntEspDelayMs = tntEspDelayMs.coerceIn(0, 10000)

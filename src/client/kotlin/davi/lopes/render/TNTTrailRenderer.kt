@@ -2,6 +2,7 @@ package davi.lopes.render
 
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
+import davi.lopes.TNTTrails
 import davi.lopes.config.ConfigManager
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
@@ -16,10 +17,15 @@ import org.joml.Vector3f
 
 object TNTTrailRenderer {
     private const val MIN_TRAIL_POINTS = 2
+    private const val ACTIVE_WALL_ALPHA = 0.65f
+    private const val DEBUG_LOG_INTERVAL_MS = 1000L
 
     private val activeTnts = HashMap<Int, TrackedTnt>()
     private val loggedTrails = ArrayList<LoggedTntTrail>()
+    private val wallProjections = ContinuousTrajectoryWall.WallProjectionCache()
     private var level: ClientLevel? = null
+    private var lastContinuousOverlaySetting = false
+    private var lastDebugLogAt = 0L
 
     fun register() {
         ClientTickEvents.END_CLIENT_TICK.register(ClientTickEvents.EndTick(::tick))
@@ -37,6 +43,11 @@ object TNTTrailRenderer {
         if (!config.enabled || currentLevel == null) {
             clear()
             return
+        }
+
+        if (config.continuousOverlay != lastContinuousOverlaySetting) {
+            wallProjections.clear()
+            lastContinuousOverlaySetting = config.continuousOverlay
         }
 
         val now = System.currentTimeMillis()
@@ -83,6 +94,7 @@ object TNTTrailRenderer {
             return
         }
 
+        val currentLevel = level ?: return
         val now = System.currentTimeMillis()
         loggedTrails.removeIf { it.isExpired(now, maxOf(config.delayMs, config.tntEspDelayMs)) }
         val visibleTrails = loggedTrails.filter { it.isTrailVisible(now, config.delayMs) }
@@ -92,21 +104,30 @@ object TNTTrailRenderer {
             emptyList()
         }
         val renderEsp = config.tntEsp && (activeTnts.isNotEmpty() || lingeringEsp.isNotEmpty())
-        if (visibleTrails.isEmpty() && !renderEsp) {
+
+        val hasActiveOverlay = config.continuousOverlay &&
+            activeTnts.values.any { it.positions.size >= MIN_TRAIL_POINTS }
+
+        if (visibleTrails.isEmpty() && !renderEsp && !hasActiveOverlay) {
             return
         }
 
         val camera = context.gameRenderer().mainCamera.position()
         val matrices = context.matrices()
-        val lineConsumer = context.consumers().getBuffer(RenderTypes.linesTranslucent())
 
-        visibleTrails.forEach { trail ->
-            val life = trail.life(now, config.delayMs)
-            val lineColor = config.argb(1f - life)
-            renderTrail(matrices, lineConsumer, trail.positions, camera, lineColor, config.lineWidth)
+        if (config.continuousOverlay) {
+            renderContinuousOverlay(matrices, context, visibleTrails, camera, now)
+        } else {
+            val lineConsumer = context.consumers().getBuffer(RenderTypes.linesTranslucent())
+            visibleTrails.forEach { trail ->
+                val life = trail.life(now, config.delayMs)
+                val lineColor = config.argb(1f - life)
+                renderTrail(matrices, lineConsumer, trail.positions, camera, lineColor, config.lineWidth)
+            }
         }
 
         if (renderEsp) {
+            val lineConsumer = context.consumers().getBuffer(RenderTypes.linesTranslucent())
             activeTnts.values.forEach { tracked ->
                 renderBoxOutline(
                     matrices,
@@ -148,6 +169,111 @@ object TNTTrailRenderer {
                 )
             }
         }
+    }
+
+    private fun renderContinuousOverlay(
+        matrices: PoseStack,
+        context: WorldRenderContext,
+        visibleTrails: List<LoggedTntTrail>,
+        camera: Vec3,
+        now: Long
+    ) {
+        val config = ConfigManager.config
+        val currentLevel = level ?: return
+        val wallConsumer = context.consumers().getBuffer(RenderTypes.debugFilledBox())
+
+        activeTnts.values.forEach { tracked ->
+            renderWallForPositions(
+                matrices = matrices,
+                consumer = wallConsumer,
+                level = currentLevel,
+                cacheKey = tracked,
+                positions = tracked.positions,
+                camera = camera,
+                color = config.argb(ACTIVE_WALL_ALPHA),
+                useCache = false
+            )
+        }
+
+        visibleTrails.forEach { trail ->
+            val life = trail.life(now, config.delayMs)
+            val visibility = 1f - life
+            renderWallForPositions(
+                matrices = matrices,
+                consumer = wallConsumer,
+                level = currentLevel,
+                cacheKey = trail,
+                positions = trail.positions,
+                camera = camera,
+                color = config.argb(ACTIVE_WALL_ALPHA * visibility),
+                useCache = true
+            )
+        }
+
+        maybeLogOverlayDebug(now, activeTnts.size, visibleTrails.size)
+    }
+
+    private fun renderWallForPositions(
+        matrices: PoseStack,
+        consumer: VertexConsumer,
+        level: ClientLevel,
+        cacheKey: Any,
+        positions: List<Vec3>,
+        camera: Vec3,
+        color: Int,
+        useCache: Boolean
+    ) {
+        if (positions.size < MIN_TRAIL_POINTS) {
+            return
+        }
+
+        val groundPoints = if (useCache) {
+            wallProjections.get(cacheKey, level, positions)
+        } else {
+            ContinuousTrajectoryWall.projectToGround(level, positions)
+        }
+
+        if (groundPoints.size != positions.size) {
+            return
+        }
+
+        ContinuousTrajectoryWall.renderWall(
+            matrices,
+            consumer,
+            positions,
+            groundPoints,
+            camera,
+            color
+        )
+    }
+
+    private fun maybeLogOverlayDebug(now: Long, activeCount: Int, visibleCount: Int) {
+        val config = ConfigManager.config
+        if (!config.continuousOverlay) {
+            return
+        }
+        if (now - lastDebugLogAt < DEBUG_LOG_INTERVAL_MS) {
+            return
+        }
+        lastDebugLogAt = now
+
+        val activeTop = activeTnts.values
+            .filter { it.positions.size >= MIN_TRAIL_POINTS }
+            .sumOf { it.positions.size }
+        val activeBottom = activeTnts.values
+            .filter { it.positions.size >= MIN_TRAIL_POINTS }
+            .sumOf {
+                ContinuousTrajectoryWall.projectToGround(level ?: return, it.positions).size
+            }
+
+        TNTTrails.logger.info(
+            "Continuous Overlay: enabled={} activeTnts={} visibleTrails={} activeTop={} activeBottom={}",
+            config.continuousOverlay,
+            activeCount,
+            visibleCount,
+            activeTop,
+            activeBottom
+        )
     }
 
     private fun renderTrail(
@@ -251,6 +377,8 @@ object TNTTrailRenderer {
     private fun clear() {
         activeTnts.clear()
         loggedTrails.clear()
+        wallProjections.clear()
+        lastContinuousOverlaySetting = false
     }
 
     private class TrackedTnt {
